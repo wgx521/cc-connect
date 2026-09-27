@@ -401,15 +401,9 @@ func TestHandleCronExec_TriggersJob(t *testing.T) {
 			// via store.MarkRun (which holds the store lock across the save).
 			// Wait for it to finish, otherwise t.TempDir()'s RemoveAll cleanup
 			// races the crons/jobs.json write and fails with "directory not
-			// empty".
-			found, lastRunSet, _ := cronJobRunStatus(store, job.ID)
-			if !found {
-				t.Fatal("expected stored job")
-			}
-			if !lastRunSet {
-				time.Sleep(10 * time.Millisecond)
-				continue
-			}
+			// empty". waitForCronRun also asserts the run finished error-free
+			// (see upstream PR discussion).
+			waitForCronRun(t, store, job.ID)
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -467,14 +461,7 @@ func TestHandleCronExec_RunAliasRouteTriggersJob(t *testing.T) {
 		if len(platform.getSent()) >= 2 {
 			// See TestHandleCronExec_TriggersJob: wait for the background
 			// run's MarkRun persistence before t.TempDir() cleanup races it.
-			found, lastRunSet, _ := cronJobRunStatus(store, job.ID)
-			if !found {
-				t.Fatal("expected stored job")
-			}
-			if !lastRunSet {
-				time.Sleep(10 * time.Millisecond)
-				continue
-			}
+			waitForCronRun(t, store, job.ID)
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

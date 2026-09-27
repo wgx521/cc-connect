@@ -547,6 +547,27 @@ func TestCronScheduler_RunJobNow_UsesSnapshot(t *testing.T) {
 	t.Fatalf("timed out waiting for snapshot run, sent=%v", platform.getSent())
 }
 
+// waitForCronRun waits until the job's last run has been persisted, so
+// t.TempDir()'s RemoveAll cleanup does not race store.MarkRun's write.
+func waitForCronRun(t *testing.T, store *CronStore, id string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		found, lastRunSet, lastErr := cronJobRunStatus(store, id)
+		if !found {
+			t.Fatalf("expected stored job %q", id)
+		}
+		if lastRunSet {
+			if lastErr != "" {
+				t.Fatalf("job %q finished with error: %s", id, lastErr)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for job %q run to persist", id)
+}
+
 func cronJobRunStatus(store *CronStore, id string) (found bool, lastRunSet bool, lastErr string) {
 	store.mu.Lock()
 	defer store.mu.Unlock()

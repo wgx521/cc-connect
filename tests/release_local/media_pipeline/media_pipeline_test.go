@@ -11,6 +11,12 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
+// queuedTurnReplyText is the settled-turn reply emitted by the fake agent
+// (see the EventResult below). Tests wait on it to drain the session-store
+// write before t.TempDir() cleanup runs; keep both sides referencing this
+// constant so the contract cannot silently drift.
+const queuedTurnReplyText = "media ok"
+
 type sendRecord struct {
 	prompt string
 	images []core.ImageAttachment
@@ -79,7 +85,7 @@ func (s *recordingSession) Send(prompt string, messageID string, images []core.I
 	}
 	s.records = append(s.records, rec)
 	if !(s.blockFirst && len(s.records) == 1) {
-		s.events <- core.Event{Type: core.EventResult, Content: "media ok", Done: true}
+		s.events <- core.Event{Type: core.EventResult, Content: queuedTurnReplyText, Done: true}
 	} else {
 		s.blocked = true
 	}
@@ -255,7 +261,7 @@ func TestInboundImagesAndFilesReachAgentThroughEngine(t *testing.T) {
 	if len(records[0].files) != 1 || records[0].files[0].FileName != "spec.pdf" || string(records[0].files[0].Data) != "%PDF" {
 		t.Fatalf("files not preserved: %#v", records[0].files)
 	}
-	platform.waitTextContaining(t, "media ok")
+	platform.waitTextContaining(t, queuedTurnReplyText)
 }
 
 func TestAttachmentOnlyMessageReachesAgent(t *testing.T) {
@@ -269,7 +275,7 @@ func TestAttachmentOnlyMessageReachesAgent(t *testing.T) {
 	if len(records[0].images) != 1 || records[0].images[0].MimeType != "image/jpeg" {
 		t.Fatalf("attachment-only image not delivered: %#v", records[0].images)
 	}
-	platform.waitTextContaining(t, "media ok")
+	platform.waitTextContaining(t, queuedTurnReplyText)
 }
 
 func TestQueuedMessagePreservesFiles(t *testing.T) {
@@ -302,7 +308,7 @@ func TestQueuedMessagePreservesFiles(t *testing.T) {
 	// race t.TempDir()'s RemoveAll cleanup ("directory not empty"). The queued
 	// turn's reply is emitted after that save, so waiting for it deterministically
 	// drains the write before cleanup runs.
-	platform.waitTextContaining(t, "media ok")
+	platform.waitTextContaining(t, queuedTurnReplyText)
 }
 
 func TestSendToSessionWithAttachmentsDeliversTextImagesAndFiles(t *testing.T) {
@@ -310,7 +316,7 @@ func TestSendToSessionWithAttachmentsDeliversTextImagesAndFiles(t *testing.T) {
 	msg := mediaMessage("establish active session")
 	engine.ReceiveMessage(platform, msg)
 	agent.session.waitRecords(t, 1)
-	platform.waitTextContaining(t, "media ok")
+	platform.waitTextContaining(t, queuedTurnReplyText)
 
 	err := engine.SendToSessionWithAttachments(
 		msg.SessionKey,
@@ -400,7 +406,7 @@ func TestSendToSessionWithAttachmentsRespectsDisabledAttachmentSend(t *testing.T
 	msg := mediaMessage("establish active session")
 	engine.ReceiveMessage(platform, msg)
 	agent.session.waitRecords(t, 1)
-	platform.waitTextContaining(t, "media ok")
+	platform.waitTextContaining(t, queuedTurnReplyText)
 
 	engine.SetAttachmentSendEnabled(false)
 	err := engine.SendToSessionWithAttachments(
@@ -429,7 +435,7 @@ func TestSendToSessionWithAttachmentsRequiresSessionWhenMultipleSessionsHaveAtta
 	engine.ReceiveMessage(platform, first)
 	engine.ReceiveMessage(platform, second)
 	agent.session.waitRecords(t, 2)
-	platform.waitTextContaining(t, "media ok")
+	platform.waitTextContaining(t, queuedTurnReplyText)
 
 	err := engine.SendToSessionWithAttachments(
 		"",
