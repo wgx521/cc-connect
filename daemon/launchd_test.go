@@ -73,7 +73,9 @@ func TestLaunchdStatusUsesUserDomainWhenGUIDomainUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	origHome := os.Getenv("HOME")
 	t.Setenv("HOME", dir)
-	t.Cleanup(func() { _ = os.Setenv("HOME", origHome) })
+	if origHome != "" {
+		t.Cleanup(func() { _ = os.Setenv("HOME", origHome) })
+	}
 	plistPath := launchdPlistPath()
 	if err := os.MkdirAll(filepath.Dir(plistPath), 0755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
