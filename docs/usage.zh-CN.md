@@ -38,7 +38,7 @@ cc-connect 完整功能使用指南。
 | `/list` | 列出当前项目的会话 |
 | `/switch <id>` | 切换到指定会话 |
 | `/current` | 查看当前会话 |
-| `/history [n]` | 查看最近 n 条消息 |
+| `/history [n]` | 查看最近 n 条消息；单条长度受 `[display].history_max_len` 控制，默认 1000 |
 | `/usage` | 查看账号/模型限额使用情况 |
 | `/provider [...]` | 管理 API Provider |
 | `/model [switch <alias>]` | 列出可用模型或按别名切换 |
@@ -90,6 +90,26 @@ reset_on_idle_mins = 60
 | 自动编辑 | `auto-edit` | 模型自行决定 |
 | 全自动 | `full-auto` | 自动通过 + 沙箱保护 |
 | YOLO | `yolo` | 跳过所有审批 |
+
+### macOS 上的 Codex CLI 查找
+
+Codex 适配器按以下顺序选择可执行文件：
+
+1. 项目的 `cmd` 配置（兼容已弃用的 `cli_path` / `command`）。
+2. 未配置命令时，读取启动 cc-connect 的进程环境中的 `CODEX_CLI_PATH`。
+3. 从该进程的 `PATH` 查找可执行的 `codex`。
+4. macOS 下依次查找 `/Applications/ChatGPT.app`、`/Applications/Codex.app`；每个应用优先检查新目录 `Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`，再检查旧目录 `Contents/Resources/codex`。
+
+PATH 中没有命令或软链接失效时，会继续查找桌面应用。显式命令或 `CODEX_CLI_PATH` 必须有效，否则报错。每次启动 CLI 子进程都会重新查找，以兼容应用更新后的目录变化。Linux、Windows 继续使用配置的命令或 PATH。
+
+`exec`、`app_server`、运行配置读取、技能查询及 `/doctor` 使用同一选择规则。路径包含空格或需要额外参数时，使用数组形式：
+
+```toml
+[projects.agent.options]
+cmd = ["/path with spaces/codex", "--profile", "work"]
+```
+
+此功能通过现有 Codex 适配器运行应用内置 CLI。桌面专有工具和共享会话写锁有独立的适配要求，参见 [桌面后端讨论 #651](https://github.com/chenhg5/cc-connect/issues/651) 和 [会话写锁冲突 #1909](https://github.com/chenhg5/cc-connect/issues/1909)。
 
 ### Cursor Agent 模式
 
@@ -705,6 +725,7 @@ cc-connect send --tts "你好"
 - `--image` 和 `--file` 都可以重复多次。
 - 建议使用绝对路径，避免 Agent 当前工作目录变化导致找不到文件。
 - 如果设置了 `attachment_send = "off"`，图片/文件回传会被拒绝，但普通文本回复仍然正常。
+- 每个附件默认上限 **50 MiB**。可在 config.toml 用 `max_attachment_size_mb`（单位 MiB）调整，或用环境变量 `CC_MAX_ATTACHMENT_SIZE_MB` 覆盖该值（同样单位 MiB，设置后优先级更高），例如 `CC_MAX_ATTACHMENT_SIZE_MB=100 cc-connect send --file big.bin`。
 
 ### 典型场景
 
@@ -718,7 +739,7 @@ cc-connect send --tts "你好"
 - 这个命令是给“附件和语音回传”用的，不要拿它代替普通文本回复。
 - 只能发送本机上 Agent 可访问到的文件。
 - 必须存在活跃会话；如果当前项目没有活动聊天上下文，命令会失败。
-- 平台本身仍可能有文件大小或文件类型限制。
+- 目标平台在投递时还会校验自己的文件大小/类型上限；实际生效的是它与 `max_attachment_size_mb` 中**更小**的那个（通过了 cc-connect 的文件仍可能在投递时被平台拒绝）。
 
 ---
 

@@ -37,7 +37,7 @@ Each user gets an independent session with full conversation context. Manage ses
 | `/list` | List all agent sessions for this project |
 | `/switch <id>` | Switch to a different session |
 | `/current` | Show current session info |
-| `/history [n]` | Show last n messages (default 10) |
+| `/history [n]` | Show last n messages (default 10; each entry follows `[display].history_max_len`, default 1000) |
 | `/usage` | Show account/model quota usage (if supported) |
 | `/provider [...]` | Manage API providers |
 | `/model [switch <alias>]` | List available models or switch by alias |
@@ -92,6 +92,26 @@ All agents support permission modes switchable at runtime via `/mode`.
 | Auto Edit | `auto-edit` | Model decides when to ask |
 | Full Auto | `full-auto` | Auto-approve with sandbox |
 | YOLO | `yolo` | Bypass all approvals and sandbox |
+
+### Codex CLI discovery on macOS
+
+The Codex adapter resolves its executable in this order:
+
+1. The project `cmd` option (including the deprecated `cli_path` / `command` aliases).
+2. `CODEX_CLI_PATH` from the environment that starts cc-connect, when no command is configured.
+3. An executable `codex` on that process's `PATH`.
+4. On macOS, `/Applications/ChatGPT.app`, then `/Applications/Codex.app`. Within each app, the current `Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex` layout is checked before the legacy `Contents/Resources/codex` layout.
+
+Desktop discovery handles a missing PATH command or a broken PATH symlink. An explicit command or `CODEX_CLI_PATH` must be executable; an invalid override reports an error. Discovery is repeated before each CLI process starts so an app update can change the bundled layout. Linux and Windows continue to use the configured command or PATH.
+
+Both `exec` and `app_server`, runtime configuration reads, skill queries, and `/doctor` use this selection. Use the array form for paths containing spaces or additional CLI arguments:
+
+```toml
+[projects.agent.options]
+cmd = ["/path with spaces/codex", "--profile", "work"]
+```
+
+This runs the bundled CLI using the existing Codex adapter. Desktop-only tools and shared-thread locking have separate requirements; see [Desktop backend discussion #651](https://github.com/chenhg5/cc-connect/issues/651) and [thread writer conflict #1909](https://github.com/chenhg5/cc-connect/issues/1909).
 
 ### Cursor Agent Modes
 
@@ -792,6 +812,7 @@ Notes:
 - `--image` and `--file` can both be repeated.
 - Absolute paths are recommended so the command does not depend on the agent's current working directory.
 - With `attachment_send = "off"`, image/file send-back is blocked but ordinary text replies still work.
+- Each attachment is capped at **50 MiB** by default. Configure it with `max_attachment_size_mb` (MiB) in config.toml, or override that value with the `CC_MAX_ATTACHMENT_SIZE_MB` env var (same MiB unit; takes precedence when set), e.g. `CC_MAX_ATTACHMENT_SIZE_MB=100 cc-connect send --file big.bin`.
 
 ### Typical use cases
 
@@ -805,7 +826,7 @@ Notes:
 - This command is for generated attachment and voice delivery, not ordinary text replies.
 - The files must exist on the local machine where the agent runs.
 - There must be an active session; otherwise the command fails because cc-connect has no chat context to deliver to.
-- Platform-specific file size and file type limits still apply.
+- The target platform also enforces its own file-size/type limit at delivery; the effective per-attachment ceiling is the smaller of that limit and `max_attachment_size_mb` (a file that passes cc-connect may still be rejected by the platform).
 
 ---
 

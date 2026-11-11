@@ -14,19 +14,37 @@ import (
 	"github.com/chenhg5/cc-connect/core"
 )
 
-func TestNormalizeReasoningEffort_RejectsMinimal(t *testing.T) {
-	if got := normalizeReasoningEffort("minimal"); got != "" {
-		t.Fatalf("normalizeReasoningEffort(minimal) = %q, want empty", got)
+func TestNormalizeReasoningEffort_CodexGPT56Levels(t *testing.T) {
+	tests := map[string]string{
+		"off":        "none",
+		"none":       "none",
+		"minimal":    "minimal",
+		"min":        "minimal",
+		"low":        "low",
+		"med":        "medium",
+		"medium":     "medium",
+		"high":       "high",
+		"x-high":     "xhigh",
+		"extra-high": "xhigh",
+		"xhigh":      "xhigh",
+		"max":        "max",
+		" MAX ":      "max",
+		"maximum":    "max",
+		"ultra":      "ultra",
+		"unknown":    "",
 	}
-	if got := normalizeReasoningEffort("min"); got != "" {
-		t.Fatalf("normalizeReasoningEffort(min) = %q, want empty", got)
+
+	for raw, want := range tests {
+		if got := normalizeReasoningEffort(raw); got != want {
+			t.Fatalf("normalizeReasoningEffort(%q) = %q, want %q", raw, got, want)
+		}
 	}
 }
 
-func TestAvailableReasoningEfforts_ExcludesMinimal(t *testing.T) {
+func TestAvailableReasoningEfforts_IncludesCodexGPT56Levels(t *testing.T) {
 	agent := &Agent{}
 	got := agent.AvailableReasoningEfforts()
-	want := []string{"low", "medium", "high", "xhigh"}
+	want := []string{"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
 	if len(got) != len(want) {
 		t.Fatalf("AvailableReasoningEfforts len = %d, want %d, got=%v", len(got), len(want), got)
 	}
@@ -38,7 +56,7 @@ func TestAvailableReasoningEfforts_ExcludesMinimal(t *testing.T) {
 }
 
 func TestBuildExecArgs_IncludesReasoningEffort(t *testing.T) {
-	cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "o3", "high", "full-auto", "", "", nil, "")
+	cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "o3", "high", "full-auto", "", "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
@@ -72,7 +90,7 @@ func TestBuildExecArgs_IncludesReasoningEffort(t *testing.T) {
 }
 
 func TestBuildExecArgs_IncludesBaseURL(t *testing.T) {
-	cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "o3", "high", "full-auto", "", "https://custom.api.example.com", nil, "")
+	cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "o3", "high", "full-auto", "", "https://custom.api.example.com", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
@@ -85,7 +103,7 @@ func TestBuildExecArgs_IncludesBaseURL(t *testing.T) {
 }
 
 func TestBuildExecArgs_IncludesModelProvider(t *testing.T) {
-	cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "openai/gpt-5.3-codex", "", "full-auto", "", "https://router.example.com/api/v1", nil, "shengsuanyun")
+	cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "openai/gpt-5.3-codex", "", "full-auto", "", "https://router.example.com/api/v1", nil, "shengsuanyun", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
@@ -101,7 +119,7 @@ func TestBuildExecArgs_IncludesModelProvider(t *testing.T) {
 }
 
 func TestBuildExecArgs_ResumeOmitsCdFlag(t *testing.T) {
-	cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "", "", "full-auto", "thread-abc", "", nil, "")
+	cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "", "", "full-auto", "thread-abc", "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
@@ -127,11 +145,11 @@ func TestBuildExecArgs_ResumeOmitsCdFlag(t *testing.T) {
 // that this backend cannot answer.
 func TestBuildExecArgs_ModeMapping(t *testing.T) {
 	tests := []struct {
-		mode             string
-		wantSandbox      string // "" means no --sandbox flag (only yolo)
-		wantApproval     bool   // true means -c approval_policy="never" must be present
-		wantBypass       bool   // true means --dangerously-bypass-approvals-and-sandbox
-		wantNoFullAuto   bool   // always true: --full-auto is removed in codex 0.137+
+		mode           string
+		wantSandbox    string // "" means no --sandbox flag (only yolo)
+		wantApproval   bool   // true means -c approval_policy="never" must be present
+		wantBypass     bool   // true means --dangerously-bypass-approvals-and-sandbox
+		wantNoFullAuto bool   // always true: --full-auto is removed in codex 0.137+
 	}{
 		{mode: "suggest", wantSandbox: "read-only", wantApproval: true, wantNoFullAuto: true},
 		{mode: "auto-edit", wantSandbox: "workspace-write", wantApproval: true, wantNoFullAuto: true},
@@ -141,7 +159,7 @@ func TestBuildExecArgs_ModeMapping(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.mode, func(t *testing.T) {
-			cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "", "", tc.mode, "", "", nil, "")
+			cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "", "", tc.mode, "", "", nil, "", "", "")
 			if err != nil {
 				t.Fatalf("newCodexSession: %v", err)
 			}
@@ -205,7 +223,7 @@ func TestBuildExecArgs_ResumeUsesSandboxModeConfigOverride(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.mode, func(t *testing.T) {
-			cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "", "", tc.mode, "thread-abc", "", nil, "")
+			cs, err := newCodexSession(context.Background(), "codex", nil, "/tmp/project", "", "", tc.mode, "thread-abc", "", nil, "", "", "")
 			if err != nil {
 				t.Fatalf("newCodexSession: %v", err)
 			}
@@ -251,12 +269,44 @@ func TestBuildExecArgs_ResumeUsesSandboxModeConfigOverride(t *testing.T) {
 	}
 }
 
+func TestCodexPromptPreamble_PrependsProjectPrompts(t *testing.T) {
+	preamble := buildCodexPromptPreamble(
+		"You are Linear Reporter.",
+		"Always invoke linear-bug-intake.",
+	)
+
+	got := prependCodexPromptPreamble("Create a Chat issue.", preamble)
+
+	for _, want := range []string{
+		"Before answering, follow these project-level instructions",
+		"Project system prompt:\nYou are Linear Reporter.",
+		"Additional project instructions:\nAlways invoke linear-bug-intake.",
+		"User message:\nCreate a Chat issue.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prompt preamble missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestCodexPromptPreamble_EmptyIsNoop(t *testing.T) {
+	const prompt = "Hello"
+	if got := prependCodexPromptPreamble(prompt, ""); got != prompt {
+		t.Fatalf("empty preamble changed prompt: %q", got)
+	}
+}
+
 func TestGetModelAndReasoningEffort_FromRuntimeConfigWhenUnset(t *testing.T) {
 	workDir := t.TempDir()
 	binDir := filepath.Join(workDir, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("mkdir bin: %v", err)
 	}
+	oldTimeout := codexRuntimeConfigTimeout
+	codexRuntimeConfigTimeout = 5 * time.Second
+	t.Cleanup(func() {
+		codexRuntimeConfigTimeout = oldTimeout
+	})
 
 	script := `#!/bin/sh
 while IFS= read -r line; do
@@ -284,7 +334,7 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
 
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "")
+	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
@@ -318,7 +368,7 @@ func TestRefreshContextUsageFromRollout_UsesLastTokenCount(t *testing.T) {
 		t.Fatalf("write rollout: %v", err)
 	}
 
-	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", sessionID, "", []string{"CODEX_HOME=" + codexHome}, "")
+	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", sessionID, "", []string{"CODEX_HOME=" + codexHome}, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
@@ -369,7 +419,7 @@ func TestSend_WithImages_PassesImageArgsAndDefaultPrompt(t *testing.T) {
 	t.Setenv("CODEX_ARGS_FILE", argsFile)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "")
+	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
@@ -380,7 +430,7 @@ func TestSend_WithImages_PassesImageArgsAndDefaultPrompt(t *testing.T) {
 		Data:     []byte("png-bytes"),
 		FileName: "sample.png",
 	}
-	if err := cs.Send("", []core.ImageAttachment{img}, nil); err != nil {
+	if err := cs.Send("", "", []core.ImageAttachment{img}, nil); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
@@ -410,6 +460,36 @@ func TestSend_WithImages_PassesImageArgsAndDefaultPrompt(t *testing.T) {
 	}
 }
 
+// TestCodexSession_ThreadStartedEmitsSessionID 验证首轮启动时立即上报会话 ID，
+// 使 Engine 可以在 turn.completed 之前持久化绑定关系。
+func TestCodexSession_ThreadStartedEmitsSessionID(t *testing.T) {
+	cs, err := newCodexSession(context.Background(), "codex", nil, t.TempDir(), "", "", "", "", "", nil, "", "", "")
+	if err != nil {
+		t.Fatalf("newCodexSession: %v", err)
+	}
+	defer func() { _ = cs.Close() }()
+
+	cs.handleEvent(map[string]any{
+		"type":      "thread.started",
+		"thread_id": "thread-before-turn-completed",
+	})
+
+	select {
+	case event := <-cs.Events():
+		if event.Type != core.EventText {
+			t.Fatalf("event type = %q, want %q", event.Type, core.EventText)
+		}
+		if event.SessionID != "thread-before-turn-completed" {
+			t.Fatalf("event session ID = %q, want thread-before-turn-completed", event.SessionID)
+		}
+		if event.Content != "" {
+			t.Fatalf("event content = %q, want empty", event.Content)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("thread.started did not emit session ID event")
+	}
+}
+
 func TestSend_ResumeWithImages_PlacesSessionBeforeImageFlags(t *testing.T) {
 	workDir := t.TempDir()
 	binDir := filepath.Join(workDir, "bin")
@@ -430,13 +510,13 @@ func TestSend_ResumeWithImages_PlacesSessionBeforeImageFlags(t *testing.T) {
 	t.Setenv("CODEX_ARGS_FILE", argsFile)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "thread-123", "", nil, "")
+	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "thread-123", "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
 	defer cs.Close()
 
-	if err := cs.Send("describe this", []core.ImageAttachment{{MimeType: "image/jpeg", Data: []byte("jpg")}}, nil); err != nil {
+	if err := cs.Send("describe this", "", []core.ImageAttachment{{MimeType: "image/jpeg", Data: []byte("jpg")}}, nil); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
@@ -483,14 +563,14 @@ func TestSend_UsesStdinForMultilinePrompt(t *testing.T) {
 	t.Setenv("CODEX_STDIN_FILE", stdinFile)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "thread-stdin", "", nil, "")
+	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "thread-stdin", "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
 	defer cs.Close()
 
 	prompt := "line1\nline2"
-	if err := cs.Send(prompt, nil, nil); err != nil {
+	if err := cs.Send(prompt, "", nil, nil); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
@@ -502,6 +582,112 @@ func TestSend_UsesStdinForMultilinePrompt(t *testing.T) {
 	// cat > file creates the path before stdin is fully read; polling until
 	// content matches avoids racing an empty read (flaky under -cover / CI).
 	waitForFileEquals(t, stdinFile, prompt)
+}
+
+func TestSend_RejectsConcurrentTurn(t *testing.T) {
+	workDir := t.TempDir()
+	binDir := filepath.Join(workDir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+
+	startsFile := filepath.Join(workDir, "starts.txt")
+	releaseFile := filepath.Join(workDir, "release")
+	script := "#!/bin/sh\n" +
+		"printf 'started\\n' >> \"$CODEX_STARTS_FILE\"\n" +
+		"while [ ! -f \"$CODEX_RELEASE_FILE\" ]; do sleep 0.01; done\n" +
+		"printf '%s\\n' '{\"type\":\"turn.completed\"}'\n"
+	powershellScript := `
+[IO.File]::AppendAllText($env:CODEX_STARTS_FILE, "started` + "`n" + `")
+while (-not (Test-Path $env:CODEX_RELEASE_FILE)) { Start-Sleep -Milliseconds 10 }
+[Console]::Out.WriteLine('{"type":"turn.completed"}')
+`
+	writeFakeCodexScript(t, binDir, script, powershellScript)
+
+	t.Setenv("CODEX_STARTS_FILE", startsFile)
+	t.Setenv("CODEX_RELEASE_FILE", releaseFile)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "thread-busy", "", nil, "", "", "")
+	if err != nil {
+		t.Fatalf("newCodexSession: %v", err)
+	}
+	defer func() { _ = cs.Close() }()
+
+	if err := cs.Send("first", "", nil, nil); err != nil {
+		t.Fatalf("first Send: %v", err)
+	}
+	waitForFileContains(t, startsFile, "started")
+
+	err = cs.Send("steer", "", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "turn already in progress") {
+		t.Fatalf("second Send error = %v, want turn already in progress", err)
+	}
+
+	data, err := os.ReadFile(startsFile)
+	if err != nil {
+		t.Fatalf("read starts file: %v", err)
+	}
+	if got := strings.Count(string(data), "started"); got != 1 {
+		t.Fatalf("started process count = %d, want 1", got)
+	}
+
+	if err := os.WriteFile(releaseFile, nil, 0o644); err != nil {
+		t.Fatalf("release fake codex: %v", err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for cs.turnInFlight.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if cs.turnInFlight.Load() {
+		t.Fatal("turn remained in progress after codex process exited")
+	}
+	if err := cs.Send("after", "", nil, nil); err != nil {
+		t.Fatalf("Send after first process exited: %v", err)
+	}
+	waitForFileLines(t, startsFile, 2)
+}
+
+func TestSend_PrependsProjectPromptOnFreshSession(t *testing.T) {
+	workDir := t.TempDir()
+	binDir := filepath.Join(workDir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+
+	stdinFile := filepath.Join(workDir, "stdin.txt")
+	script := "#!/bin/sh\n" +
+		"cat > \"$CODEX_STDIN_FILE\"\n" +
+		"printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"thread-preamble\"}'\n" +
+		"printf '%s\\n' '{\"type\":\"turn.completed\"}'\n"
+	powershellScript := `
+[IO.File]::WriteAllText($env:CODEX_STDIN_FILE, [Console]::In.ReadToEnd())
+[Console]::Out.WriteLine('{"type":"thread.started","thread_id":"thread-preamble"}')
+[Console]::Out.WriteLine('{"type":"turn.completed"}')
+`
+	writeFakeCodexScript(t, binDir, script, powershellScript)
+
+	t.Setenv("CODEX_STDIN_FILE", stdinFile)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "", "You are Linear Reporter.", "Always invoke linear-bug-intake.")
+	if err != nil {
+		t.Fatalf("newCodexSession: %v", err)
+	}
+	defer func() { _ = cs.Close() }()
+
+	if err := cs.Send("Create a Chat issue.", "", nil, nil); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	wantParts := []string{
+		"Project system prompt:\nYou are Linear Reporter.",
+		"Additional project instructions:\nAlways invoke linear-bug-intake.",
+		"User message:\nCreate a Chat issue.",
+	}
+	for _, want := range wantParts {
+		waitForFileContains(t, stdinFile, want)
+	}
 }
 
 func TestSend_HandlesLargeJSONLines(t *testing.T) {
@@ -536,13 +722,13 @@ func TestSend_HandlesLargeJSONLines(t *testing.T) {
 	t.Setenv("CODEX_PAYLOAD_FILE", payloadFile)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "")
+	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
 	defer cs.Close()
 
-	if err := cs.Send("hello", nil, nil); err != nil {
+	if err := cs.Send("hello", "", nil, nil); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
@@ -666,11 +852,17 @@ func writeFakeCodexScript(t *testing.T, dir, shellScript, powershellScript strin
 func waitForArgsFile(t *testing.T, path string) []string {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
+	var last string
 	for time.Now().Before(deadline) {
 		data, err := os.ReadFile(path)
 		if err == nil {
 			text := strings.TrimSpace(string(data))
 			if text != "" {
+				if text != last {
+					last = text
+					time.Sleep(20 * time.Millisecond)
+					continue
+				}
 				lines := strings.Split(text, "\n")
 				args := make([]string, 0, len(lines))
 				for _, line := range lines {
@@ -702,6 +894,20 @@ func waitForFileEquals(t *testing.T, path, want string) {
 	}
 	data, _ := os.ReadFile(path)
 	t.Fatalf("stdin file %s: got %q, want %q", path, string(data), want)
+}
+
+func waitForFileContains(t *testing.T, path, want string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(path)
+		if err == nil && strings.Contains(string(data), want) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	data, _ := os.ReadFile(path)
+	t.Fatalf("file %s: got %q, want substring %q", path, string(data), want)
 }
 
 func containsSequence(args, want []string) bool {
@@ -742,7 +948,7 @@ func indexOf(args []string, target string) int {
 }
 
 func TestCodexSession_ContinueSessionTreatedAsFresh(t *testing.T) {
-	s, err := newCodexSession(context.Background(), "codex", nil, "/tmp", "", "", "full-auto", core.ContinueSession, "", nil, "")
+	s, err := newCodexSession(context.Background(), "codex", nil, "/tmp", "", "", "full-auto", core.ContinueSession, "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
@@ -784,16 +990,24 @@ func TestClose_ForceKillsProcessGroupAfterGracefulTimeout(t *testing.T) {
 		codexSessionForceKillWait = oldForceKillWait
 	})
 
-	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "")
+	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
 
-	if err := cs.Send("hello", nil, nil); err != nil {
+	if err := cs.Send("hello", "", nil, nil); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 
 	waitForThreadID(t, cs, "thread-close")
+	select {
+	case event := <-cs.Events():
+		if event.Type != core.EventText || event.SessionID != "thread-close" {
+			t.Fatalf("startup event = %#v, want session ID event for thread-close", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for startup session ID event")
+	}
 
 	closeStarted := time.Now()
 	if err := cs.Close(); err != nil {
@@ -813,7 +1027,7 @@ func TestClose_ForceKillsProcessGroupAfterGracefulTimeout(t *testing.T) {
 	}
 }
 
-func TestClose_ForceKillsAllTrackedProcessesAfterCmdOverwrite(t *testing.T) {
+func TestClose_ForceKillsProcessStillRunningAfterTurnCompleted(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("process-group semantics differ on windows")
 	}
@@ -829,10 +1043,8 @@ func TestClose_ForceKillsAllTrackedProcessesAfterCmdOverwrite(t *testing.T) {
 	script := "#!/bin/sh\n" +
 		"prompt=$(cat)\n" +
 		"printf '%s\\n' \"$prompt\" >> \"$CODEX_STARTS_FILE\"\n" +
-		"if [ \"$prompt\" = \"first\" ]; then\n" +
-		"  printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"thread-overlap\"}'\n" +
-		"  printf '%s\\n' '{\"type\":\"turn.completed\"}'\n" +
-		"fi\n" +
+		"printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"thread-overlap\"}'\n" +
+		"printf '%s\\n' '{\"type\":\"turn.completed\"}'\n" +
 		"sleep 30\n"
 	scriptPath := filepath.Join(binDir, "codex")
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
@@ -851,28 +1063,28 @@ func TestClose_ForceKillsAllTrackedProcessesAfterCmdOverwrite(t *testing.T) {
 		codexSessionForceKillWait = oldForceKillWait
 	})
 
-	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "")
+	cs, err := newCodexSession(context.Background(), "codex", nil, workDir, "", "", "", "", "", nil, "", "", "")
 	if err != nil {
 		t.Fatalf("newCodexSession: %v", err)
 	}
 
-	if err := cs.Send("first", nil, nil); err != nil {
+	if err := cs.Send("first", "", nil, nil); err != nil {
 		t.Fatalf("Send(first): %v", err)
 	}
 	waitForThreadID(t, cs, "thread-overlap")
 	waitForDoneResult(t, cs.Events())
 
-	if err := cs.Send("second", nil, nil); err != nil {
-		t.Fatalf("Send(second): %v", err)
+	if err := cs.Send("second", "", nil, nil); err == nil || !strings.Contains(err.Error(), "turn already in progress") {
+		t.Fatalf("Send(second) error = %v, want turn already in progress", err)
 	}
-	waitForFileLines(t, startsFile, 2)
+	waitForFileLines(t, startsFile, 1)
 
 	closeStarted := time.Now()
 	if err := cs.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	if elapsed := time.Since(closeStarted); elapsed > time.Second {
-		t.Fatalf("Close took too long after force killing tracked processes: %v", elapsed)
+		t.Fatalf("Close took too long after force killing tracked process: %v", elapsed)
 	}
 
 	select {

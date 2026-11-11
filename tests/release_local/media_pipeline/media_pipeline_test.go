@@ -66,7 +66,7 @@ func (s *recordingSession) blockFirstResult() {
 	s.blockFirst = true
 }
 
-func (s *recordingSession) Send(prompt string, images []core.ImageAttachment, files []core.FileAttachment) error {
+func (s *recordingSession) Send(prompt string, messageID string, images []core.ImageAttachment, files []core.FileAttachment) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.alive {
@@ -188,10 +188,10 @@ func (p *mediaPlatform) SendFile(_ context.Context, replyCtx any, file core.File
 	return nil
 }
 
-func (p *mediaPlatform) snapshot() (texts []string, images []core.ImageAttachment, files []core.FileAttachment, replyCtx []any) {
+func (p *mediaPlatform) snapshot() (texts []string, messageID string, images []core.ImageAttachment, files []core.FileAttachment, replyCtx []any) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return append([]string(nil), p.texts...),
+	return append([]string(nil), p.texts...), "",
 		append([]core.ImageAttachment(nil), p.images...),
 		append([]core.FileAttachment(nil), p.files...),
 		append([]any(nil), p.replyCtx...)
@@ -201,7 +201,7 @@ func (p *mediaPlatform) waitTextContaining(t *testing.T, substr string) string {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		texts, _, _, _ := p.snapshot()
+		texts, _, _, _, _ := p.snapshot()
 		for _, text := range texts {
 			if strings.Contains(strings.ToLower(text), strings.ToLower(substr)) {
 				return text
@@ -209,7 +209,7 @@ func (p *mediaPlatform) waitTextContaining(t *testing.T, substr string) string {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	texts, _, _, _ := p.snapshot()
+	texts, _, _, _, _ := p.snapshot()
 	t.Fatalf("timeout waiting for text containing %q, got %#v", substr, texts)
 	return ""
 }
@@ -295,6 +295,14 @@ func TestQueuedMessagePreservesFiles(t *testing.T) {
 	if len(records[1].files) != 1 || records[1].files[0].FileName != "queued.txt" || string(records[1].files[0].Data) != "queued-file" {
 		t.Fatalf("queued file not preserved: %#v", records[1].files)
 	}
+
+	// waitRecords only proves the queued prompt reached the agent (the start of
+	// the turn). The engine persists the session store under t.TempDir() when
+	// the turn completes, so returning here lets the still-running turn goroutine
+	// race t.TempDir()'s RemoveAll cleanup ("directory not empty"). The queued
+	// turn's reply is emitted after that save, so waiting for it deterministically
+	// drains the write before cleanup runs.
+	platform.waitTextContaining(t, "media ok")
 }
 
 func TestSendToSessionWithAttachmentsDeliversTextImagesAndFiles(t *testing.T) {
@@ -314,7 +322,7 @@ func TestSendToSessionWithAttachmentsDeliversTextImagesAndFiles(t *testing.T) {
 		t.Fatalf("SendToSessionWithAttachments() error = %v", err)
 	}
 
-	texts, images, files, replyCtx := platform.snapshot()
+	texts, _, images, files, replyCtx := platform.snapshot()
 	if !containsText(texts, "delivery ready") {
 		t.Fatalf("texts = %#v, want delivery message", texts)
 	}
@@ -360,7 +368,7 @@ func TestSendToSessionWithAttachmentsDoesNotDuplicateEchoedFinalTextWithContextI
 	deadline := time.Now().Add(300 * time.Millisecond)
 	var lastTexts []string
 	for time.Now().Before(deadline) {
-		texts, _, _, _ := platform.snapshot()
+		texts, _, _, _, _ := platform.snapshot()
 		lastTexts = texts
 		count := 0
 		for _, text := range texts {
@@ -404,7 +412,7 @@ func TestSendToSessionWithAttachmentsRespectsDisabledAttachmentSend(t *testing.T
 	if !errors.Is(err, core.ErrAttachmentSendDisabled) {
 		t.Fatalf("err = %v, want ErrAttachmentSendDisabled", err)
 	}
-	texts, images, files, _ := platform.snapshot()
+	texts, _, images, files, _ := platform.snapshot()
 	if containsText(texts, "should not send") || len(images) != 0 || len(files) != 0 {
 		t.Fatalf("disabled attachment send leaked output: texts=%#v images=%#v files=%#v", texts, images, files)
 	}
@@ -432,7 +440,7 @@ func TestSendToSessionWithAttachmentsRequiresSessionWhenMultipleSessionsHaveAtta
 	if err == nil || !strings.Contains(err.Error(), "multiple active sessions") {
 		t.Fatalf("err = %v, want multiple active sessions error", err)
 	}
-	texts, images, files, _ := platform.snapshot()
+	texts, _, images, files, _ := platform.snapshot()
 	if containsText(texts, "ambiguous") || len(images) != 0 || len(files) != 0 {
 		t.Fatalf("ambiguous attachment send leaked output: texts=%#v images=%#v files=%#v", texts, images, files)
 	}
