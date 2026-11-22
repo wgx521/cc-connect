@@ -70,6 +70,20 @@ type RelayGroupVisibilityTarget interface {
 	RelayGroupVisibilityKey(callerSessionKey string) (groupSessionKey string, ok bool)
 }
 
+// ChannelScopedSessionKey is an optional interface for platforms whose session
+// keys encode a per-thread channel scope, such as a Feishu topic or a Discord
+// thread. Such platforms can bind one workspace per thread, and the binding key
+// must carry that scope.
+//
+// Core cannot parse platform-private session-key layouts, so platforms convert
+// their own format via this interface. Implementations return the channel scope
+// WITHOUT the platform name — core prepends it. Returning ("", false) makes
+// core fall back to its generic parsing, which keeps the chat-level key and is
+// correct for platforms without per-thread scoping.
+type ChannelScopedSessionKey interface {
+	ChannelKeyFromSessionKey(sessionKey string) (channelKey string, ok bool)
+}
+
 // MessageRecallDetector is an optional interface for platforms that can check
 // whether the message targeted by a reply context was recalled/deleted.
 type MessageRecallDetector interface {
@@ -310,6 +324,29 @@ type CardNavigable interface {
 	SetCardNavigationHandler(h CardNavigationHandler)
 }
 
+// Localizer returns the user-facing text for key in the engine's current
+// language.
+type Localizer func(key MsgKey) string
+
+// LocalizerAware is an optional interface for platforms that show
+// user-facing text of their own (toasts, inline notices). The engine hands
+// them its localizer so that text follows the configured language.
+type LocalizerAware interface {
+	SetLocalizer(l Localizer)
+}
+
+// AskQuestionLiveCheck reports whether an AskUserQuestion option click
+// (action "askq:...") for sessionKey would still answer a waiting question.
+type AskQuestionLiveCheck func(sessionKey, action string) bool
+
+// AskQuestionStateAware is an optional interface for platforms that render
+// the answered state of an AskUserQuestion card themselves when an option
+// is clicked. Checking first lets them leave a stale card alone instead of
+// showing an answer the agent never received.
+type AskQuestionStateAware interface {
+	SetAskQuestionLiveCheck(c AskQuestionLiveCheck)
+}
+
 // CardRefresher is an optional interface for platforms that can update a
 // previously rendered card in-place after the original callback has returned.
 // This is used when async operations (e.g. delete-mode deletion) need to
@@ -381,6 +418,12 @@ type PermissionResult struct {
 	Behavior     string         `json:"behavior"`               // "allow" or "deny"
 	UpdatedInput map[string]any `json:"updatedInput,omitempty"` // echoed back for allow
 	Message      string         `json:"message,omitempty"`      // reason for deny
+}
+
+// UserInputSteerer delivers an answer to a non-blocking question while the agent
+// continues working. False means there is no active turn; use normal Send instead.
+type UserInputSteerer interface {
+	SteerUserInput(prompt string) (bool, error)
 }
 
 // ToolAuthorizer is an optional interface for agents that support dynamic tool authorization.

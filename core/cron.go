@@ -32,7 +32,7 @@ type CronJob struct {
 	Enabled     bool      `json:"enabled"`
 	Silent      *bool     `json:"silent,omitempty"`       // suppress start notification; nil = use global default
 	Mute        bool      `json:"mute,omitempty"`         // suppress ALL messages (start + result); job runs silently
-	SessionMode string    `json:"session_mode,omitempty"` // "" or "reuse" = share active session; "new_per_run" = fresh session each run
+	SessionMode string    `json:"session_mode,omitempty"` // "" = use global default; "reuse" = share active session; "new_per_run" = fresh session each run
 	Mode        string    `json:"mode,omitempty"`         // permission mode override for this job; "" = use project default
 	TimeoutMins *int      `json:"timeout_mins,omitempty"` // nil = default 30m wait; 0 = no limit; >0 = minutes
 	CreatedAt   time.Time `json:"created_at"`
@@ -71,14 +71,20 @@ func (j *CronJob) UsesNewSessionPerRun() bool {
 	return NormalizeCronSessionMode(j.SessionMode) == "new_per_run"
 }
 
-// NormalizeCronSessionMode maps CLI/API aliases to canonical values ("", "new_per_run").
+// NormalizeCronSessionMode maps CLI/API aliases to canonical values
+// ("", "reuse", "new_per_run"). The empty string means "unspecified" — the
+// scheduler falls back to the global default. "reuse" means the user
+// explicitly opted out of new-per-run, and is preserved separately so it can
+// override a global default of new_per_run on a per-job basis.
 // Returns the original string if unrecognized (caller should validate).
 func NormalizeCronSessionMode(s string) string {
 	s = strings.TrimSpace(s)
 	low := strings.ToLower(s)
 	switch low {
-	case "", "reuse":
+	case "":
 		return ""
+	case "reuse":
+		return "reuse"
 	case "new_per_run", "new-per-run":
 		return "new_per_run"
 	default:
@@ -97,7 +103,7 @@ func validateCronJob(j *CronJob) error {
 		return fmt.Errorf("session_key is required")
 	}
 	mode := NormalizeCronSessionMode(j.SessionMode)
-	if mode != "" && mode != "new_per_run" {
+	if mode != "" && mode != "reuse" && mode != "new_per_run" {
 		return fmt.Errorf("invalid session_mode %q (want reuse, new_per_run, or new-per-run)", j.SessionMode)
 	}
 	if j.Mode != "" {
@@ -450,6 +456,9 @@ type CronScheduler struct {
 	stop    chan struct{}
 	done    chan struct{}
 	running bool
+	// quit is closed by Stop so a job that is still running stops being
+	// waited on; shutdown must not block until the job finishes (#2313).
+	quit chan struct{}
 }
 
 func NewCronScheduler(store *CronStore) *CronScheduler {
@@ -505,6 +514,7 @@ func (cs *CronScheduler) Start() error {
 	cs.wakeUp = make(chan struct{}, 1)
 	cs.stop = make(chan struct{}, 1)
 	cs.done = make(chan struct{})
+	cs.quit = make(chan struct{})
 	cs.mu.Unlock()
 
 	jobs := cs.store.List()
@@ -531,6 +541,7 @@ func (cs *CronScheduler) Stop() {
 	cs.running = false
 	stopCh := cs.stop
 	doneCh := cs.done
+	close(cs.quit)
 	cs.mu.Unlock()
 
 	select {
@@ -538,6 +549,22 @@ func (cs *CronScheduler) Stop() {
 	default:
 	}
 	<-doneCh
+}
+
+// stopping reports whether Stop has been called since the last Start.
+func (cs *CronScheduler) stopping() bool {
+	cs.mu.RLock()
+	quit := cs.quit
+	cs.mu.RUnlock()
+	if quit == nil {
+		return false
+	}
+	select {
+	case <-quit:
+		return true
+	default:
+		return false
+	}
 }
 
 // signalWakeUp nudges the runLoop to re-evaluate the next firing time.
@@ -633,6 +660,9 @@ func (cs *CronScheduler) fireDueJobs() {
 	cs.mu.RUnlock()
 
 	for _, e := range due {
+		if cs.stopping() {
+			return
+		}
 		job := cs.store.Get(e.jobID)
 		if job != nil {
 			cs.runJob(job, false)
@@ -862,16 +892,27 @@ func (cs *CronScheduler) runJob(job *CronJob, manual bool) {
 		done <- engine.ExecuteCronJob(job)
 	}()
 
-	var err error
+	cs.mu.RLock()
+	quit := cs.quit
+	cs.mu.RUnlock()
+
+	// A nil timeout channel blocks forever, so a job without a timeout
+	// waits only for completion or shutdown.
+	var timeoutCh <-chan time.Time
 	timeout := job.ExecutionTimeout()
 	if timeout > 0 {
-		select {
-		case err = <-done:
-		case <-time.After(timeout):
-			err = fmt.Errorf("job timed out after %v", timeout)
-		}
-	} else {
-		err = <-done
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		timeoutCh = timer.C
+	}
+
+	var err error
+	select {
+	case err = <-done:
+	case <-timeoutCh:
+		err = fmt.Errorf("job timed out after %v", timeout)
+	case <-quit:
+		err = errors.New("job interrupted by shutdown")
 	}
 
 	cs.store.MarkRun(job.ID, err)
